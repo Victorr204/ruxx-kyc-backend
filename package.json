@@ -1,0 +1,10 @@
+
+{
+  "name": "paystack-backend",
+  "version": "1.0.0",
+  "description": "paystack backend for virtual account",
+  "type": "module",
+  "dependencies": {
+    "appwrite": "^14.0.0"
+  }
+}
