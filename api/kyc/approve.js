@@ -1,5 +1,7 @@
+// File: api/kyc/approve.js — Admin KYC review (approve / reject / reverify)
 import { databases } from "../../lib/appwrite.js";
-import { verifyAdmin } from "../../../paystack-backend/lib/auth.js";
+import { Query } from "appwrite";
+import { verifyAdmin } from "../../lib/auth.js";
 
 const VALID_ACTIONS = ["approve", "reject", "reverify"];
 
@@ -80,8 +82,33 @@ export default async function handler(req, res) {
       updatePayload
     );
 
+    // 2️⃣ Sync the user document so profile/dashboard reflect KYC state
+    try {
+      const userDocs = await databases.listDocuments(
+        process.env.DATABASE_ID,
+        process.env.USER_COLLECTION_ID,
+        [Query.equal("userId", doc.userId)]
+      );
+      if (userDocs.total > 0) {
+        await databases.updateDocument(
+          process.env.DATABASE_ID,
+          process.env.USER_COLLECTION_ID,
+          userDocs.documents[0].$id,
+          {
+            kycStatus: updatePayload.status,
+            kycLevel: updatePayload.verificationLevel,
+          }
+        );
+      }
+    } catch (err) {
+      console.error("KYC user sync error:", err.message);
+    }
+
     res.json({
       success: true,
+      status: updatePayload.status,
+      verificationLevel: updatePayload.verificationLevel,
+      reviewNote: updatePayload.reviewNote,
       message: `KYC ${action === "approve" ? "approved" : action === "reject" ? "rejected" : "sent for re-verification"}`,
     });
   } catch (error) {

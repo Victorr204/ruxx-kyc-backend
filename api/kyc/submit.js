@@ -1,10 +1,12 @@
 import { databases } from "../../lib/appwrite.js";
 import { ID, Query } from "appwrite";
-import { verifySessionUser } from "../../../paystack-backend/lib/auth.js";
+import { verifySessionUser } from "../../lib/auth.js";
 
 const VALID_ID_TYPES = ["local_id_nin", "national_id_card", "international_passport"];
 const AI_LIVENESS_THRESHOLD = 0.75;
 const AI_FACE_MATCH_THRESHOLD = 0.72;
+// Auto-approve is OFF unless explicitly enabled with KYC_AUTO_APPROVE=true
+const AUTO_APPROVE_ENABLED = String(process.env.KYC_AUTO_APPROVE || "false").toLowerCase() === "true";
 
 const parseMaybeJson = (value, fallback = {}) => {
   if (typeof value === "string") {
@@ -144,12 +146,14 @@ export default async function handler(req, res) {
     const livenessPassed =
       livenessScores?.passed === true || parsedAiLiveness?.passed === true;
 
-    // --- AI auto-verification: live face + ID face match => approve without admin ---
-    const autoApproved =
+    // --- AI auto-verification candidate: live face + ID face match ---
+    // Only becomes an auto-approval when KYC_AUTO_APPROVE=true (off by default)
+    const aiAutoCandidate =
       livenessPassed &&
       livenessScore >= AI_LIVENESS_THRESHOLD &&
       faceMatchPassed &&
       faceMatchScore >= AI_FACE_MATCH_THRESHOLD;
+    const autoApproved = AUTO_APPROVE_ENABLED && aiAutoCandidate;
 
     // --- Check for existing KYC submission ---
     const existing = await databases.listDocuments(

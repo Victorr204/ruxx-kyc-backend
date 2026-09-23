@@ -1,10 +1,15 @@
-
 {
-  "name": "paystack-backend",
+  "name": "ruxx-kyc-backend",
   "version": "1.0.0",
-  "description": "paystack backend for virtual account",
+  "description": "KYC verification backend for Ruxx (Vercel serverless functions)",
+  "private": true,
   "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "license": "ISC",
   "dependencies": {
-    "appwrite": "^14.0.0"
+    "appwrite": "^14.0.0",
+    "node-appwrite": "^19.0.0"
   }
 }
