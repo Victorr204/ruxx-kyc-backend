@@ -1,10 +1,11 @@
 import { databases } from "../../lib/appwrite.js";
 import { ID, Query } from "appwrite";
 import { verifySessionUser } from "../../lib/auth.js";
+import { verifySubmissionWithAi, isAiConfigured } from "../../lib/openai.js";
 
 const VALID_ID_TYPES = ["local_id_nin", "national_id_card", "international_passport"];
-const AI_LIVENESS_THRESHOLD = 0.75;
-const AI_FACE_MATCH_THRESHOLD = 0.72;
+const AI_LIVENESS_THRESHOLD = Number(process.env.AI_LIVENESS_THRESHOLD) || 0.75;
+const AI_FACE_MATCH_THRESHOLD = Number(process.env.AI_FACE_MATCH_THRESHOLD) || 0.72;
 // Auto-approve is OFF unless explicitly enabled with KYC_AUTO_APPROVE=true
 const AUTO_APPROVE_ENABLED = String(process.env.KYC_AUTO_APPROVE || "false").toLowerCase() === "true";
 
@@ -38,6 +39,7 @@ export default async function handler(req, res) {
       aiFaceMatch = {},
       aiFaceMatchPassed,
       aiFaceMatchScore,
+      stepActions = [],
     } = req.body;
 
     // --- Validate required fields ---
@@ -146,14 +148,41 @@ export default async function handler(req, res) {
     const livenessPassed =
       livenessScores?.passed === true || parsedAiLiveness?.passed === true;
 
-    // --- AI auto-verification candidate: live face + ID face match ---
-    // Only becomes an auto-approval when KYC_AUTO_APPROVE=true (off by default)
-    const aiAutoCandidate =
+    // --- Inbuilt AI verification (OpenAI on server) ---
+    // Re-checks uploaded liveness frames + ID face match before any auto-approve.
+    let serverAi = null;
+    let serverAiError = null;
+    if (isAiConfigured()) {
+      try {
+        serverAi = await verifySubmissionWithAi({
+          documentUrl: imageUrl,
+          livenessUrls: [selfieUrl, ...livenessUrls].filter(Boolean),
+          stepActions: Array.isArray(stepActions) ? stepActions : [],
+        });
+      } catch (err) {
+        serverAiError = err.message || "Server AI verification failed";
+        console.error("KYC server AI error:", serverAiError);
+      }
+    }
+
+    const serverLivenessPassed = serverAi ? serverAi.livenessPassed : false;
+    const serverFaceMatchPassed = serverAi ? !!serverAi.faceMatch?.passed : false;
+    const serverAiPassed = serverAi ? serverAi.passed : false;
+
+    // --- AI auto-verification candidate ---
+    // Client scores alone are never enough: server AI must also pass when configured.
+    // AUTO_APPROVE stays off unless KYC_AUTO_APPROVE=true.
+    const clientCandidate =
       livenessPassed &&
       livenessScore >= AI_LIVENESS_THRESHOLD &&
       faceMatchPassed &&
       faceMatchScore >= AI_FACE_MATCH_THRESHOLD;
-    const autoApproved = AUTO_APPROVE_ENABLED && aiAutoCandidate;
+
+    const aiCandidate = isAiConfigured()
+      ? serverAiPassed && serverLivenessPassed && serverFaceMatchPassed
+      : clientCandidate;
+
+    const autoApproved = AUTO_APPROVE_ENABLED && clientCandidate && aiCandidate;
 
     // --- Check for existing KYC submission ---
     const existing = await databases.listDocuments(
@@ -178,8 +207,8 @@ export default async function handler(req, res) {
         passed: livenessScores?.passed !== false,
         aiLivenessPassed: livenessScores?.passed !== false,
         score: Number(livenessScores?.score) || 0,
-        method: livenessScores?.method || "ondevice-mlkit",
-        engine: livenessScores?.engine || "google-mlkit-face-detection",
+        method: livenessScores?.method || "openai-vision",
+        engine: livenessScores?.engine || "openai-gpt",
         stepsPassed: Number(livenessScores?.stepsPassed) || livenessUrls.length + 1,
         eyeBlinkSeen: !!livenessScores?.eyeBlinkSeen,
         totalFrames: Number(livenessScores?.totalFrames) || livenessUrls.length + 1,
@@ -187,10 +216,25 @@ export default async function handler(req, res) {
         aiFaceMatchPassed: faceMatchPassed,
         aiFaceMatchScore: faceMatchScore,
         aiFaceMatchReason: parsedAiFaceMatch.reason || "",
-        aiFaceMatchMethod: parsedAiFaceMatch.method || "ondevice-geometric",
+        aiFaceMatchMethod: parsedAiFaceMatch.method || "openai-vision",
         aiAutoVerified: autoApproved,
         rawAiLiveness: parsedAiLiveness,
         rawAiFaceMatch: parsedAiFaceMatch,
+        serverAiRan: isAiConfigured(),
+        serverAiPassed: serverAiPassed,
+        serverAiError: serverAiError || "",
+        serverAi: serverAi
+          ? {
+              passed: serverAi.passed,
+              livenessPassed: serverAi.livenessPassed,
+              livenessScore: serverAi.livenessScore,
+              faceMatch: serverAi.faceMatch,
+              reason: serverAi.reason,
+              method: serverAi.method,
+              engine: serverAi.engine,
+              verifiedAt: serverAi.verifiedAt,
+            }
+          : null,
       }),
       verificationLevel: autoApproved ? 3 : 0,
       status: autoApproved ? "approved" : "pending",
@@ -199,7 +243,11 @@ export default async function handler(req, res) {
       reviewNote: autoApproved
         ? `Auto-verified by AI — liveness ${Math.round(livenessScore * 100)}% + ID face match ${Math.round(
             faceMatchScore * 100
-          )}%`
+          )}%${serverAi ? " + server OpenAI re-check passed" : ""}`
+        : isAiConfigured() && serverAi && !serverAi.passed
+        ? `Server AI: ${serverAi.reason}`
+        : isAiConfigured() && serverAiError
+        ? `Server AI error: ${serverAiError}`
         : "",
       ...(autoApproved ? { reviewedAt: nowIso } : {}),
       submittedAt: nowIso,
@@ -264,7 +312,9 @@ export default async function handler(req, res) {
       action,
       autoApproved,
       message: autoApproved
-        ? "Identity verified — the AI confirmed your liveness and ID face match. No further review needed."
+        ? "Identity verified — OpenAI confirmed your liveness and ID face match. No further review needed."
+        : isAiConfigured() && serverAi && !serverAi.passed
+        ? `KYC submitted — server AI could not fully verify (${serverAi.reason}). Pending admin review.`
         : action === "updated"
         ? "KYC updated — pending admin review."
         : "KYC submitted — pending admin review.",
