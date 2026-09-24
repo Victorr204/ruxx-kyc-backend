@@ -2,31 +2,31 @@
 
 KYC verification backend (Vercel serverless).
 
-## AI (OpenAI cloud vision)
+## Verification flow
 
-Face detection, liveness pose checks, and ID-vs-liveness face match run on **OpenAI** via this backend — no on-device ML Kit.
+Liveness runs fully in-app (guided capture, scored on-device). This backend validates and stores KYC submissions as `pending` and handles admin approval — the app does not call any cloud AI.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /api/kyc/ai/frame` | Analyze liveness frame(s) for a pose action |
-| `POST /api/kyc/ai/face-match` | Match ID document face vs liveness selfies |
-| `GET/POST /api/kyc/ai/health` | Auth + whether OpenAI is configured |
-| `POST /api/kyc/submit` | Submit KYC; re-verifies with OpenAI when configured |
+| `POST /api/kyc/submit` | Submit KYC; stored as `pending` for admin review |
+| `POST /api/kyc/approve` | Admin approve/reject a submission |
+| `POST /api/kyc/ai/frame` | Legacy OpenAI frame analysis (not used by the app) |
+| `POST /api/kyc/ai/face-match` | Legacy OpenAI face match (not used by the app) |
+| `GET /api/kyc/ai/health` | Whether OpenAI is configured (not used by the app) |
 
-All AI routes require an Appwrite session `Authorization: Bearer <token>` and are rate-limited.
+All routes require an Appwrite session `Authorization: Bearer <token>` (health is public) and are rate-limited.
 
 ### Required env (Vercel project)
 
 ```
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...             # optional — only for the legacy ai/* endpoints
 OPENAI_MODEL=gpt-4o-mini          # optional
 AI_LIVENESS_THRESHOLD=0.75        # optional
-AI_FACE_MATCH_THRESHOLD=0.72      # optional
-KYC_AUTO_APPROVE=false            # true = auto-approve when client + server AI both pass
+KYC_AUTO_APPROVE=false            # true = auto-approve when the client liveness score passes
 ```
 
 Never put `OPENAI_API_KEY` in the Expo app.
 
-### Server AI re-check
+### Auto-approve
 
-On submit, if `OPENAI_API_KEY` is set, the server re-runs liveness frame analysis and face match on the uploaded Cloudinary URLs before any auto-approve. Client scores alone are not enough when server AI is enabled.
+`KYC_AUTO_APPROVE` defaults to `false` — every submission goes to admin review. If set to `true`, a submission is auto-approved when the in-app liveness score is at least `AI_LIVENESS_THRESHOLD`. No server-side face match runs anymore.
