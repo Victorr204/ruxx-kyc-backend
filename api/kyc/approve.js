@@ -1,6 +1,6 @@
 // File: api/kyc/approve.js — Admin KYC review (approve / reject / reverify)
-import { databases } from "../../lib/appwrite.js";
-import { Query } from "appwrite";
+import { getDatabases } from "../../lib/appwrite.js";
+import { Query } from "node-appwrite";
 import { verifyAdmin } from "../../lib/auth.js";
 
 const VALID_ACTIONS = ["approve", "reject", "reverify"];
@@ -18,6 +18,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const databases = getDatabases();
     const { documentId, action = "approve", level = 3, reason = "" } = req.body;
 
     if (!documentId) {
@@ -112,7 +113,11 @@ export default async function handler(req, res) {
       message: `KYC ${action === "approve" ? "approved" : action === "reject" ? "rejected" : "sent for re-verification"}`,
     });
   } catch (error) {
-    console.error("KYC approve error:", error.message);
-    res.status(500).json({ success: false, message: "Server error" });
+    console.error("KYC approve error:", error.message || error);
+    const isConfig = error && typeof error.message === "string" && error.message.startsWith("Server config error");
+    res.status(error?.status || 500).json({
+      success: false,
+      message: isConfig ? error.message : "Server error",
+    });
   }
 }
