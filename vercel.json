@@ -3,5 +3,11 @@
     "api/**/*.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/tpa/expire",
+      "schedule": "0 8 * * *"
+    }
+  ]
 }
