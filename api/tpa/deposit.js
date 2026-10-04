@@ -8,7 +8,9 @@ import { getUserDoc } from "../../lib/accounts.js";
 const MIN_AMOUNT = 100;
 const MAX_AMOUNT = 1_000_000;
 // Paystack clamps bank_transfer accounts to 15 minutes – 8 hours.
-const ACCOUNT_TTL_MS = 8 * 60 * 60 * 1000;
+// One-time accounts are deliberately short-lived: 30 minutes is the window the
+// payment page counts down and the point past which the number stops working.
+const ACCOUNT_TTL_MS = 30 * 60 * 1000;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {

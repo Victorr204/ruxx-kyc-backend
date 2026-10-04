@@ -2,7 +2,7 @@
 // While a TPA is active it funds every purchase; after migration or expiry the
 // purchase flow never calls this endpoint again.
 import { verifySession } from "../../lib/auth.js";
-import { debitTpa, findLiveTpa, isActive, restoreTpa } from "../../lib/tpa.js";
+import { debitTpa, findLiveTpa, findLatestTpa, isActive, refundTpa } from "../../lib/tpa.js";
 import { balanceAmountOf, getBalanceDoc } from "../../lib/accounts.js";
 
 export default async function handler(req, res) {
@@ -71,17 +71,19 @@ export default async function handler(req, res) {
       }
     }
 
-    if (action === "refund") {
-      const previousAmount = Number(req.body?.previousAmount);
-      const previousSpent = Number(req.body?.previousSpent);
-      if (isNaN(previousAmount) || isNaN(previousSpent)) {
-        return res.status(400).json({ ok: false, error: "Missing previous balance" });
+    // Reversal used by immediate purchase failures and delayed reconciliation
+    // alike: a relative credit stays correct when other transactions landed
+    // between the debit and this reversal.
+    if (action === "refundAmount" || action === "refund") {
+      const amount = Number(req.body?.amount);
+      if (!amount || amount <= 0 || isNaN(amount)) {
+        return res.status(400).json({ ok: false, error: "Missing amount" });
       }
-      const tpa = await findLiveTpa(user.$id);
+      const tpa = (await findLiveTpa(user.$id)) || (await findLatestTpa(user.$id));
       if (!tpa) {
         return res.status(404).json({ ok: false, error: "Temporary account not found" });
       }
-      const result = await restoreTpa(tpa, previousAmount, previousSpent);
+      const result = await refundTpa(tpa, amount);
       return res.status(200).json({ ok: true, source: "tpa", newBalance: result.newBalance });
     }
 

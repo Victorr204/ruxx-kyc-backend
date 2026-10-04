@@ -16,6 +16,14 @@ const projectId = process.env.APPWRITE_PROJECT_ID;
 const apiKey = process.env.APPWRITE_API_KEY;
 const databaseId = process.env.DATABASE_ID || process.env.APPWRITE_DATABASE_ID;
 const tpaCollectionId = process.env.TPA_COLLECTION_ID || "tempAccounts";
+const myflow = {
+  flows: process.env.MYFLOW_FLOWS_COLLECTION || "myflowFlows",
+  auths: process.env.MYFLOW_AUTHS_COLLECTION || "myflowAuths",
+  execs: process.env.MYFLOW_EXECS_COLLECTION || "myflowExecs",
+  events: process.env.MYFLOW_EVENTS_COLLECTION || "myflowEvents",
+  settings: process.env.MYFLOW_SETTINGS_COLLECTION || "myflowSettings",
+  flags: process.env.MYFLOW_FLAGS_COLLECTION || "myflowUserFlags",
+};
 
 if (!projectId || !apiKey || !databaseId) {
   console.error("Missing APPWRITE_PROJECT_ID, APPWRITE_API_KEY or DATABASE_ID.");
@@ -113,6 +121,163 @@ const PLAN = [
     attributes: TPA_STRING,
     indexes: [{ key: "userId", attributes: ["userId"] }, { key: "status", attributes: ["status"] }],
   },
+
+  // -------------------------------------------------- MyFlow (scheduled purchases)
+  {
+    label: "MyFlow Flows",
+    collectionId: myflow.flows,
+    create: true,
+    attributes: [
+      str("userId", 64),
+      str("name", 120),
+      str("service", 20),
+      str("providerId", 64),
+      str("providerName", 60),
+      str("productId", 64),
+      str("recipient", 64),
+      str("recipientType", 20),
+      str("recipientName", 255),
+      str("meterType", 20),
+      double("amount"),
+      str("plan", 120),
+      str("validity", 60),
+      str("priceProtection", 12),
+      double("priceCapPct"),
+      double("maxPriceCap"),
+      str("scheduleType", 16),
+      str("scheduleConfig", 4000),
+      str("timezone", 64),
+      str("startAt", 64),
+      str("endAt", 64),
+      str("nextRunAt", 64),
+      str("status", 16),
+      str("pauseCode", 40),
+      str("pauseReason", 500),
+      str("authorizationId", 64),
+      double("perExecutionLimit"),
+      double("dailyLimit"),
+      double("monthlyLimit"),
+      int("maxConsecutiveFailures", 3),
+      int("failureCount"),
+      int("runCount"),
+      str("lastRunAt", 64),
+      str("lastResult", 200),
+      str("notifyPrefs", 4000),
+      str("createdAt", 64),
+      str("updatedAt", 64),
+      str("stoppedAt", 64),
+      str("stopReason", 200),
+    ],
+    indexes: [
+      { key: "userId", attributes: ["userId"] },
+      { key: "userIdStatus", attributes: ["userId", "status"] },
+      { key: "statusNextRun", attributes: ["status", "nextRunAt"] },
+    ],
+  },
+  {
+    label: "MyFlow Authorizations",
+    collectionId: myflow.auths,
+    create: true,
+    attributes: [
+      str("userId", 64),
+      str("flowId", 64),
+      str("method", 16),
+      str("signature", 128),
+      str("limits", 1000),
+      str("status", 16),
+      str("authorizedAt", 64),
+      str("revokedAt", 64),
+    ],
+    indexes: [
+      { key: "userId", attributes: ["userId"] },
+      { key: "flowId", attributes: ["flowId"] },
+    ],
+  },
+  {
+    label: "MyFlow Executions",
+    collectionId: myflow.execs,
+    create: true,
+    attributes: [
+      str("flowId", 64),
+      str("userId", 64),
+      str("scheduledFor", 64),
+      str("idempotencyKey", 128),
+      str("status", 32),
+      str("errorCode", 64),
+      str("message", 500),
+      str("reference", 128),
+      str("providerRequestId", 128),
+      double("amount"),
+      double("faceValue"),
+      str("wallet", 16),
+      double("balanceBefore"),
+      double("balanceAfter"),
+      int("retryCount"),
+      str("emailStatus", 20),
+      str("artifact", 65535),
+      str("triggeredBy", 16),
+      str("startedAt", 64),
+      str("finishedAt", 64),
+      str("createdAt", 64),
+      str("updatedAt", 64),
+    ],
+    indexes: [
+      // One execution per scheduled run — the money-safety invariant.
+      { key: "idempotencyKey", attributes: ["idempotencyKey"], type: "unique" },
+      { key: "flowId", attributes: ["flowId"] },
+      { key: "userId", attributes: ["userId"] },
+      { key: "statusStarted", attributes: ["status", "startedAt"] },
+    ],
+  },
+  {
+    label: "MyFlow Events",
+    collectionId: myflow.events,
+    create: true,
+    attributes: [
+      str("executionId", 64),
+      str("flowId", 64),
+      str("type", 40),
+      str("at", 64),
+      str("data", 2000),
+    ],
+    indexes: [
+      { key: "executionId", attributes: ["executionId"] },
+      { key: "flowId", attributes: ["flowId"] },
+    ],
+  },
+  {
+    // Singleton doc id "global": platform pause + kill switch, per-service
+    // kill switches, configurable platform risk limits, provider circuit state.
+    label: "MyFlow Settings",
+    collectionId: myflow.settings,
+    create: true,
+    attributes: [
+      bool("paused"),
+      bool("killSwitch"),
+      str("pauseReason", 500),
+      str("disabledServices", 200),
+      str("disabledProviders", 2000),
+      str("providerHealth", 4000),
+      double("platformMaxPerTxn"),
+      double("platformMaxPerDay"),
+      double("platformMaxPerMonth"),
+      str("updatedAt", 64),
+    ],
+  },
+  {
+    // Per-user emergency Pause All (§49): one doc per user, id "u_<userId>".
+    label: "MyFlow User Flags",
+    collectionId: myflow.flags,
+    create: true,
+    attributes: [
+      str("userId", 64),
+      bool("paused"),
+      str("pausedAt", 64),
+      str("resumedAt", 64),
+      str("updatedAt", 64),
+    ],
+    indexes: [{ key: "userId", attributes: ["userId"], type: "unique" }],
+  },
 ];
 
 async function ensureCollection(collectionId, name) {
@@ -149,11 +314,11 @@ async function ensureAttribute(collectionId, attr) {
   console.log(`  ${key} created`);
 }
 
-async function ensureIndex(collectionId, key, attributes) {
+async function ensureIndex(collectionId, key, attributes, type = "key") {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const r = await call("POST", `${endpoint}/databases/${databaseId}/collections/${collectionId}/indexes`, {
       key,
-      type: "key",
+      type,
       status: "available",
       attributes,
       orders: attributes.map(() => "ASC"),
@@ -178,8 +343,19 @@ async function main() {
     console.log(`\n${group.label} (${group.collectionId})`);
     if (group.create) await ensureCollection(group.collectionId, group.label);
     for (const attr of group.attributes) await ensureAttribute(group.collectionId, attr);
-    for (const idx of group.indexes || []) await ensureIndex(group.collectionId, idx.key, idx.attributes);
+    for (const idx of group.indexes || []) await ensureIndex(group.collectionId, idx.key, idx.attributes, idx.type);
   }
+
+  // MyFlow settings singleton: created once, never overwritten.
+  const settingsR = await call(
+    "POST",
+    `${endpoint}/databases/${databaseId}/collections/${myflow.settings}/documents`,
+    { documentId: "global", data: { paused: false, killSwitch: false, pauseReason: "", updatedAt: "" } }
+  );
+  if (settingsR.status < 400) console.log(`\n${myflow.settings}: singleton "global" created`);
+  else if (exists(settingsR)) console.log(`\n${myflow.settings}: singleton "global" already exists`);
+  else console.error(`\n${myflow.settings}: singleton FAILED ${settingsR.status} ${msg(settingsR.data)}`);
+
   console.log("\ndone");
 }
 
