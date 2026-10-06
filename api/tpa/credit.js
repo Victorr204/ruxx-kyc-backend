@@ -29,7 +29,18 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, ignored: event?.event || "unknown" });
   }
 
-  const meta = event.data?.metadata || {};
+  const rawMeta = event.data?.metadata;
+  let meta = {};
+  if (rawMeta && typeof rawMeta === "object") {
+    meta = rawMeta;
+  } else if (typeof rawMeta === "string" && rawMeta.trim()) {
+    try {
+      const parsed = JSON.parse(rawMeta);
+      if (parsed && typeof parsed === "object") meta = parsed;
+    } catch {
+      meta = {};
+    }
+  }
   const looksLikeTpa = Boolean(meta.ruxxTpa || meta.ruxx_tpa);
   if (!looksLikeTpa) {
     return res.status(200).json({ ok: true, ignored: "not-a-tpa-charge" });
