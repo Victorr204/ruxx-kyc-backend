@@ -107,7 +107,20 @@ const PLAN = [
   {
     label: "Transactions",
     collectionId: process.env.APPWRITE_TXN_COLLECTION_ID || "6866caf00030b1c752a0",
-    attributes: [str("reference", 128), str("kind", 16), str("note", 500), str("source", 32)],
+    // `meta` is NOT optional: writeLedgerEntry always serialises it, and
+    // Appwrite rejects the whole document when an unknown attribute is sent
+    // (document_invalid_structure) — which silently emptied order history.
+    attributes: [
+      str("reference", 128),
+      str("kind", 16),
+      str("note", 500),
+      str("source", 32),
+      str("meta", 65535),
+    ],
+    indexes: [
+      { key: "userId", attributes: ["userId"] },
+      { key: "userIdReference", attributes: ["userId", "reference"] },
+    ],
   },
   {
     label: "balance",
@@ -275,6 +288,10 @@ const PLAN = [
       str("pausedAt", 64),
       str("resumedAt", 64),
       str("updatedAt", 64),
+      // Settings + paid unlock (see paystack-backend/scripts/migrate-myflow-user-flags.mjs)
+      str("notifyPrefs", 1000),
+      bool("flowsUnlocked"),
+      str("upgradedAt", 64),
     ],
     indexes: [{ key: "userId", attributes: ["userId"], type: "unique" }],
   },
