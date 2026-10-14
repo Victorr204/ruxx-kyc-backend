@@ -288,10 +288,12 @@ const PLAN = [
       str("pausedAt", 64),
       str("resumedAt", 64),
       str("updatedAt", 64),
-      // Settings + paid unlock (see paystack-backend/scripts/migrate-myflow-user-flags.mjs)
+      // Settings + paid slot packs (see paystack-backend/scripts/migrate-myflow-user-flags.mjs)
       str("notifyPrefs", 1000),
       bool("flowsUnlocked"),
       str("upgradedAt", 64),
+      // Extra active-flow slots bought in ₦1,000 packs of 5 (max 50 total)
+      int("extraSlots", 0, 0, 47),
     ],
     indexes: [{ key: "userId", attributes: ["userId"], type: "unique" }],
   },
