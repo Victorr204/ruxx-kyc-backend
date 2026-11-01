@@ -7,7 +7,7 @@
   "crons": [
     {
       "path": "/api/kyc/autoapprove",
-      "schedule": "* * * * *"
+      "schedule": "0 8 * * *"
     }
   ]
 }

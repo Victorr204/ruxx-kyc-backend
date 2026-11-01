@@ -1,8 +1,10 @@
-// File: api/kyc/autoapprove.js — per-minute cron that approves submissions
-// whose 60-second review window elapsed while nobody had the app open, so
-// an approved identity never depends on the user polling. The app's
-// /api/kyc/status endpoint applies the same approval lazily on read; this
-// worker is the background safety net.
+// File: api/kyc/autoapprove.js — daily cron that approves submissions whose
+// 60-second review window elapsed while nobody had the app open, so an
+// approved identity never depends on the user polling. The app's
+// /api/kyc/status endpoint applies the same approval lazily on read (the
+// primary path, effectively instant while the app is open); this worker is
+// the background safety net. The schedule is daily because Vercel's Hobby
+// plan rejects cron expressions that run more than once per day.
 import { getDatabases } from "../../lib/appwrite.js";
 import { Query } from "node-appwrite";
 import { autoApproveIfDue } from "../../lib/kycReview.js";

@@ -15,7 +15,7 @@ KYC verification backend (Vercel serverless). Permanent accounts only — the ol
 | `POST /api/kyc/submit` | Submit KYC: NIMC NIN check + face match + 60s auto-approval window |
 | `POST /api/kyc/nin-check` | Inline NIN validation (NIMC via Dojah) for the verify screen |
 | `POST /api/kyc/status` | Status view; applies a due 60-second auto-approval lazily on read |
-| `POST /api/kyc/autoapprove` | Per-minute cron: approves submissions past their 60s window (`CRON_SECRET`) |
+| `POST /api/kyc/autoapprove` | Daily cron (Hobby-plan limit): approves submissions past their 60s window (`CRON_SECRET`). Lazy approval on `/api/kyc/status` reads is the primary path. |
 | `POST /api/kyc/approve` | Admin approve/reject/reverify |
 | `POST /api/wallet/status` | KYC + permanent prepaid account state for the app |
 | `POST /api/kyc/ai/frame` | Legacy OpenAI frame analysis (not used by the app) |
