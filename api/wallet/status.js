@@ -1,6 +1,7 @@
-// File: api/tpa/status.js — one call that tells the app which top-up flow to show.
+// File: api/wallet/status.js — KYC + permanent prepaid account state for the
+// app (replaces /api/tpa/status: temporary accounts no longer exist — every
+// account is permanent and KYC-gated).
 import { verifySession } from "../../lib/auth.js";
-import { isActive, listTpas, publicView } from "../../lib/tpa.js";
 import { balanceAmountOf, getBalanceDoc, getUserDoc, hasVirtualAccount, isKycApproved } from "../../lib/accounts.js";
 
 export default async function handler(req, res) {
@@ -16,14 +17,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [userDoc, balanceDoc, tpaDocs] = await Promise.all([
+    const [userDoc, balanceDoc] = await Promise.all([
       getUserDoc(user.$id),
       getBalanceDoc(user.$id),
-      listTpas(user.$id),
     ]);
-
-    const liveTpa = tpaDocs.find((d) => d.status === "pending" || isActive(d)) || null;
-    const latestTpa = tpaDocs[0] || null;
 
     const approved = isKycApproved(userDoc);
     const hasPva = hasVirtualAccount(userDoc);
@@ -35,22 +32,17 @@ export default async function handler(req, res) {
       kycStatus: userDoc?.kycStatus || null,
       approved,
       hasPva,
-      // PVA creation is only offered once KYC is approved.
+      // The permanent prepaid account is only issued once identity is verified.
       canCreatePva: approved && !hasPva,
-      needsMigration: approved && !hasPva && Boolean(latestTpa),
       pva: hasPva
         ? typeof userDoc.virtualAccount === "object"
           ? userDoc.virtualAccount
           : safeParse(userDoc.virtualAccount)
         : null,
-      tpa: publicView(liveTpa || latestTpa),
-      tpaActive: isActive(liveTpa),
-      hasTpa: Boolean(latestTpa),
-      tpaCount: tpaDocs.length,
       prepaid: balanceAmountOf(balanceDoc),
     });
   } catch (err) {
-    console.error("TPA status error:", err?.message || err);
+    console.error("wallet status error:", err?.message || err);
     return res.status(500).json({ error: "Failed to load account status" });
   }
 }

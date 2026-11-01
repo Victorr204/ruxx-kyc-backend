@@ -8,14 +8,12 @@
 //   APPWRITE_PROJECT_ID=... \
 //   APPWRITE_API_KEY=... \
 //   DATABASE_ID=... \
-//   TPA_COLLECTION_ID=tempAccounts \
 //   node scripts/setup-schema.mjs
 
 const endpoint = (process.env.APPWRITE_ENDPOINT || "https://fra.cloud.appwrite.io/v1").replace(/\/+$/, "");
 const projectId = process.env.APPWRITE_PROJECT_ID;
 const apiKey = process.env.APPWRITE_API_KEY;
 const databaseId = process.env.DATABASE_ID || process.env.APPWRITE_DATABASE_ID;
-const tpaCollectionId = process.env.TPA_COLLECTION_ID || "tempAccounts";
 const myflow = {
   flows: process.env.MYFLOW_FLOWS_COLLECTION || "myflowFlows",
   auths: process.env.MYFLOW_AUTHS_COLLECTION || "myflowAuths",
@@ -66,21 +64,6 @@ const bool = (key) => ({ type: "boolean", key, required: false, default: false }
 const date = (key) => ({ type: "datetime", key, required: false, default: "" });
 const double = (key, def = 0) => ({ type: "double", key, required: false, default: def, min: 0 });
 
-const TPA_STRING = [
-  str("userId", 255),
-  str("status", 20),
-  double("amount"),
-  double("spent"),
-  double("deposited"),
-  str("expiresAt", 64),
-  str("processedRefs", 4000),
-  bool("notice7d"),
-  bool("notice1d"),
-  bool("noticeExpired"),
-  str("createdAt", 64),
-  str("updatedAt", 64),
-];
-
 const PLAN = [
   {
     label: "users",
@@ -92,7 +75,9 @@ const PLAN = [
   {
     label: "KYC Submissions",
     collectionId: process.env.KYC_COLLECTION_ID || "6866ca550022ff21e9dc",
-    // Fields /api/kyc/submit and /api/kyc/approve write.
+    // Fields /api/kyc/submit and /api/kyc/approve write. The verification
+    // trail (NIN/NIMC check, face match, 60-second auto-approval deadline)
+    // is what /api/kyc/status and /api/kyc/autoapprove decide from.
     attributes: [
       int("verificationLevel"),
       str("reviewNote", 500),
@@ -102,6 +87,12 @@ const PLAN = [
       str("livenessUrls", 65535),
       str("livenessScores", 65535),
       bool("aiLivenessPassed"),
+      str("autoApproveAt", 64),
+      str("ninCheckStatus", 32),
+      bool("ninVerified"),
+      bool("ninNameMatch"),
+      bool("faceMatchPassed"),
+      str("aiReport", 65535),
     ],
   },
   {
@@ -126,13 +117,6 @@ const PLAN = [
     label: "balance",
     collectionId: process.env.APPWRITE_BALANCE_COLLECTION_ID || "688485f60013ffff20c6",
     attributes: [str("processedRefs", 4000), bool("referralRewardGiven")],
-  },
-  {
-    label: "Temporary Accounts",
-    collectionId: tpaCollectionId,
-    create: true,
-    attributes: TPA_STRING,
-    indexes: [{ key: "userId", attributes: ["userId"] }, { key: "status", attributes: ["status"] }],
   },
 
   // -------------------------------------------------- MyFlow (scheduled purchases)

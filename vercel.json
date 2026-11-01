@@ -6,8 +6,8 @@
   },
   "crons": [
     {
-      "path": "/api/tpa/expire",
-      "schedule": "0 8 * * *"
+      "path": "/api/kyc/autoapprove",
+      "schedule": "* * * * *"
     }
   ]
 }

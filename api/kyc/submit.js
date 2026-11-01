@@ -1,11 +1,12 @@
 import { getDatabases } from "../../lib/appwrite.js";
 import { ID, Query } from "node-appwrite";
 import { verifySessionUser } from "../../lib/auth.js";
+import { checkNin } from "../../lib/dojah.js";
+import { isAiConfigured, matchFaces } from "../../lib/openai.js";
+import { AUTO_APPROVE_DELAY_MS } from "../../lib/kycReview.js";
 
 const VALID_ID_TYPES = ["local_id_nin", "national_id_card", "international_passport"];
 const AI_LIVENESS_THRESHOLD = Number(process.env.AI_LIVENESS_THRESHOLD) || 0.75;
-// Auto-approve is OFF unless explicitly enabled with KYC_AUTO_APPROVE=true
-const AUTO_APPROVE_ENABLED = String(process.env.KYC_AUTO_APPROVE || "false").toLowerCase() === "true";
 
 const parseMaybeJson = (value, fallback = {}) => {
   if (typeof value === "string") {
@@ -122,12 +123,62 @@ export default async function handler(req, res) {
     const livenessPassed =
       livenessScores?.passed === true || parsedAiLiveness?.passed === true;
 
-    // --- Auto-verification candidate ---
-    // Liveness runs fully in-app; every submission goes to admin review unless
-    // KYC_AUTO_APPROVE=true is explicitly set.
-    const clientCandidate = livenessPassed && livenessScore >= AI_LIVENESS_THRESHOLD;
+    // --- NIN validation against NIMC (Dojah) — the common Nigerian ID ---
+    // A wrong NIN is rejected immediately so the user can fix it before the
+    // review queue ever sees it. A provider outage never blocks a submission:
+    // it falls back to admin review instead of the 60-second auto-approval.
+    let ninCheck = { status: "n/a" };
+    if (idType === "local_id_nin") {
+      try {
+        ninCheck = await checkNin({ nin: details.ninNumber, fullName });
+      } catch (err) {
+        ninCheck = { status: "unavailable", message: err.message };
+      }
+      if (ninCheck.status === "not_found" || ninCheck.status === "bad_format") {
+        return res.status(400).json({
+          success: false,
+          code: "NIN_NOT_FOUND",
+          message: "That NIN was not found in NIMC records. Check the number and try again.",
+        });
+      }
+    }
 
-    const autoApproved = AUTO_APPROVE_ENABLED && clientCandidate;
+    // --- Facial verification: the live face vs the ID document face --------
+    // Server-side face match (OpenAI vision). A mismatch is returned to the
+    // user right away so they can retake; an AI outage routes the submission
+    // to human review rather than locking anyone out.
+    let aiCheck = { status: "unconfigured" };
+    if (isAiConfigured()) {
+      try {
+        const faceMatch = await matchFaces(imageUrl, [selfieUrl, ...livenessUrls].filter(Boolean));
+        aiCheck = { status: faceMatch.passed ? "passed" : "failed", result: faceMatch };
+        if (!faceMatch.passed) {
+          return res.status(400).json({
+            success: false,
+            code: "FACE_MISMATCH",
+            message: `Facial verification failed: ${faceMatch.reason}. Retake your selfie in good light and try again.`,
+          });
+        }
+      } catch (err) {
+        aiCheck = { status: "unavailable", error: err.message };
+      }
+    }
+
+    // --- 60-second auto-approval window ------------------------------------
+    // NIN verified with NIMC + face match + liveness all passed → the account
+    // approves itself 60 seconds later if no admin has decided in between
+    // (the reviewer keeps the full window to reject first). Anything missing
+    // — non-NIN ID, provider outage, weak liveness — goes to admin review.
+    const clientCandidate = livenessPassed && livenessScore >= AI_LIVENESS_THRESHOLD;
+    const ninVerified = ninCheck.status === "verified";
+    const autoApproveEligible =
+      ninVerified &&
+      ninCheck.nameMatch !== false &&
+      aiCheck.status === "passed" &&
+      clientCandidate;
+    const autoApproveAt = autoApproveEligible
+      ? new Date(Date.now() + AUTO_APPROVE_DELAY_MS).toISOString()
+      : "";
 
     // --- Check for existing KYC submission ---
     const existing = await databases.listDocuments(
@@ -158,17 +209,24 @@ export default async function handler(req, res) {
         eyeBlinkSeen: !!livenessScores?.eyeBlinkSeen,
         totalFrames: Number(livenessScores?.totalFrames) || livenessUrls.length + 1,
         promptCount: Number(livenessScores?.promptCount) || 5,
-        aiAutoVerified: autoApproved,
+        aiAutoVerified: false,
         rawAiLiveness: parsedAiLiveness,
       }),
-      verificationLevel: autoApproved ? 3 : 0,
-      status: autoApproved ? "approved" : "pending",
-      verified: autoApproved,
+      // Verification trail consumed by the status view, the admin screen and
+      // the 60-second auto-approver (attributes: scripts/setup-schema.mjs).
+      ninVerified,
+      ninNameMatch: ninCheck.nameMatch === true,
+      ninCheckStatus: String(ninCheck.status || "n/a").slice(0, 32),
+      faceMatchPassed: aiCheck.status === "passed",
+      aiReport: JSON.stringify(aiCheck).slice(0, 65535),
+      autoApproveAt,
+      // Nothing is approved synchronously any more: the decision belongs to
+      // an admin, or to the 60-second window when every check passed.
+      verificationLevel: 0,
+      status: "pending",
+      verified: false,
       aiLivenessPassed: livenessScores?.passed !== false,
-      reviewNote: autoApproved
-        ? `Auto-verified — liveness ${Math.round(livenessScore * 100)}%`
-        : "",
-      ...(autoApproved ? { reviewedAt: nowIso } : {}),
+      reviewNote: "",
       submittedAt: nowIso,
       updatedAt: nowIso,
     };
@@ -217,8 +275,8 @@ export default async function handler(req, res) {
           process.env.USER_COLLECTION_ID,
           userDocs.documents[0].$id,
           {
-            kycStatus: autoApproved ? "approved" : "pending",
-            kycLevel: autoApproved ? 3 : 0,
+            kycStatus: "pending",
+            kycLevel: 0,
           }
         );
       }
@@ -229,9 +287,15 @@ export default async function handler(req, res) {
     res.json({
       success: true,
       action,
-      autoApproved,
-      message: autoApproved
-        ? "Identity verified automatically. No further review needed."
+      status: "pending",
+      autoApproved: false,
+      autoApproveEligible,
+      autoApproveAt: autoApproveAt || null,
+      autoApproveSeconds: autoApproveEligible ? Math.round(AUTO_APPROVE_DELAY_MS / 1000) : 0,
+      ninStatus: ninCheck.status,
+      faceMatch: aiCheck.status,
+      message: autoApproveEligible
+        ? "All checks passed — reviewing your identity now. You'll be approved within a minute if no reviewer is available."
         : action === "updated"
         ? "KYC updated — pending admin review."
         : "KYC submitted — pending admin review.",
