@@ -2,7 +2,7 @@ import { getDatabases } from "../../lib/appwrite.js";
 import { ID, Query } from "node-appwrite";
 import { verifySessionUser } from "../../lib/auth.js";
 import { checkNin } from "../../lib/ninValidator.js";
-import { isAiConfigured, matchFaces } from "../../lib/openai.js";
+import { isAiConfigured, matchFaces } from "../../lib/vision.js";
 import { AUTO_APPROVE_DELAY_MS } from "../../lib/kycReview.js";
 
 const VALID_ID_TYPES = ["local_id_nin", "national_id_card", "international_passport"];
@@ -148,9 +148,9 @@ export default async function handler(req, res) {
     }
 
     // --- Facial verification: the live face vs the ID document face --------
-    // Server-side face match (OpenAI vision). A mismatch is returned to the
-    // user right away so they can retake; an AI outage routes the submission
-    // to human review rather than locking anyone out.
+    // Server-side face match (vision AI — see lib/vision.js). A mismatch is
+    // returned to the user right away so they can retake; an AI outage routes
+    // the submission to human review rather than locking anyone out.
     let aiCheck = { status: "unconfigured" };
     if (isAiConfigured()) {
       try {

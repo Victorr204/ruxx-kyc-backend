@@ -5,8 +5,8 @@ KYC verification backend (Vercel serverless). Permanent accounts only — the ol
 ## Verification flow
 
 1. The app captures the ID, NIN and a guided 5-pose liveness session on-device and posts it to `/api/kyc/submit`.
-2. The backend validates the **NIN against the ID photo the user submitted** (in-app OpenAI vision — no third-party NIMC lookup): the entered number must match what is printed on the document, otherwise it is rejected immediately with `NIN_MISMATCH`.
-3. It runs the **facial verification** server-side: the live selfie is face-matched against the ID document (OpenAI vision) — a mismatch is rejected with `FACE_MISMATCH`.
+2. The backend validates the **NIN against the ID photo the user submitted** (in-app vision AI — no third-party NIMC lookup): the entered number must match what is printed on the document, otherwise it is rejected immediately with `NIN_MISMATCH`.
+3. It runs the **facial verification** server-side: the live selfie is face-matched against the ID document (vision AI) — a mismatch is rejected with `FACE_MISMATCH`.
 4. Everything passed → the submission is stored `pending` with `autoApproveAt = submit + 60s`: an admin has the full 60-second window to decide, and if nobody does, the account **approves itself**.
 5. Any check unavailable (unreadable ID photo, non-NIN ID) → plain admin review, no auto-approval.
 
@@ -18,23 +18,33 @@ KYC verification backend (Vercel serverless). Permanent accounts only — the ol
 | `POST /api/kyc/autoapprove` | Daily cron (Hobby-plan limit): approves submissions past their 60s window (`CRON_SECRET`). Lazy approval on `/api/kyc/status` reads is the primary path. |
 | `POST /api/kyc/approve` | Admin approve/reject/reverify |
 | `POST /api/wallet/status` | KYC + permanent prepaid account state for the app |
-| `POST /api/kyc/ai/frame` | Legacy OpenAI frame analysis (not used by the app) |
-| `POST /api/kyc/ai/face-match` | Legacy OpenAI face match (not used by the app) |
-| `GET /api/kyc/ai/health` | Whether OpenAI is configured (not used by the app) |
+| `POST /api/kyc/ai/frame` | Legacy liveness frame analysis (not used by the app) |
+| `POST /api/kyc/ai/face-match` | Legacy face match (not used by the app) |
+| `GET /api/kyc/ai/health` | Whether the vision AI is configured (not used by the app) |
 
 All `/api/kyc/*` routes except `ai/health` require an Appwrite session `Authorization: Bearer <token>` and are rate-limited.
 
 ### Required env (Vercel project)
 
+Vision AI runs on a **provider chain — free tiers first** (`lib/vision.js`):
+Gemini → Groq → OpenAI. Each configured provider gets one attempt; quota
+exhaustion or an outage falls through to the next, and if all fail the
+submission degrades to admin review (never a hard block).
+
 ```
-OPENAI_API_KEY=sk-...            # REQUIRED: face match + NIN ↔ ID photo cross-check
+GEMINI_API_KEY=...               # primary — FREE, no card: https://aistudio.google.com
+GEMINI_MODEL=gemini-2.5-flash    # optional
+GROQ_API_KEY=...                 # fallback — FREE, no card: https://console.groq.com
+GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct   # optional
+OPENAI_API_KEY=sk-...            # optional paid fallback (only if the free tiers fail)
 OPENAI_MODEL=gpt-4o-mini         # optional
 AI_LIVENESS_THRESHOLD=0.75       # optional
 AI_FACE_MATCH_THRESHOLD=0.72     # optional
 CRON_SECRET=...                  # REQUIRED for the /api/kyc/autoapprove cron (fails closed)
 ```
 
-Never put `OPENAI_API_KEY` in the Expo app.
+At least one vision key is REQUIRED for face match + the NIN ↔ ID photo
+cross-check. Never put any AI key in the Expo app.
 
 ### Auto-approve (60 seconds)
 

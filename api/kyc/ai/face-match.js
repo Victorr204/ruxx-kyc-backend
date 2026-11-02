@@ -1,6 +1,6 @@
 import { verifySession } from "../../../lib/auth.js";
 import { enforce } from "../../../lib/rateLimit.js";
-import { matchFaces, isAiConfigured, aiNotConfiguredMessage } from "../../../lib/openai.js";
+import { matchFaces, isAiConfigured, aiNotConfiguredMessage } from "../../../lib/vision.js";
 
 function normalizeImage(value) {
   if (typeof value !== "string") return null;

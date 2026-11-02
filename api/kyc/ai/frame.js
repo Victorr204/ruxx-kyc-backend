@@ -1,6 +1,6 @@
 import { verifySession } from "../../../lib/auth.js";
 import { enforce } from "../../../lib/rateLimit.js";
-import { analyzeLivenessFrames, isAiConfigured, aiNotConfiguredMessage } from "../../../lib/openai.js";
+import { analyzeLivenessFrames, isAiConfigured, aiNotConfiguredMessage } from "../../../lib/vision.js";
 
 const VALID_ACTIONS = new Set(["front", "left", "right", "blink", "up"]);
 
