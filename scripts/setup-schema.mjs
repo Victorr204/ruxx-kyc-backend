@@ -76,7 +76,7 @@ const PLAN = [
     label: "KYC Submissions",
     collectionId: process.env.KYC_COLLECTION_ID || "6866ca550022ff21e9dc",
     // Fields /api/kyc/submit and /api/kyc/approve write. The verification
-    // trail (NIN/NIMC check, face match, 60-second auto-approval deadline)
+    // trail (NIN checked against the ID document, face match, 60-second auto-approval deadline)
     // is what /api/kyc/status and /api/kyc/autoapprove decide from.
     attributes: [
       int("verificationLevel"),

@@ -1,15 +1,19 @@
-// File: api/kyc/nin-check.js — live NIN validation against NIMC (via Dojah)
-// for the verify screen, so a wrong NIN is caught on the spot instead of
-// after photos and liveness are taken.
+// File: api/kyc/nin-check.js — inline NIN pre-check for the verify screen,
+// so a malformed number is caught on the spot instead of after photos and
+// liveness are taken. Chip mode only: without the ID photo there is nothing
+// to cross-check yet — the real validation runs on /api/kyc/submit, where
+// the entered NIN is matched against what's printed on the document (in-app,
+// no third-party NIMC lookup).
 import { verifySession } from "../../lib/auth.js";
 import { enforce } from "../../lib/rateLimit.js";
-import { checkNin, isNinFormat } from "../../lib/dojah.js";
+import { checkNin, isNinFormat } from "../../lib/ninValidator.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
   }
-  // Paid provider call — 15 checks / 5 min / session is generous for typing.
+  // Session-scoped limit kept generous for typing UX (no provider credits
+  // are burned any more — the chip check is a local format check).
   if (!(await enforce(req, res, "kyc-nin-check", 15, 5 * 60_000))) return;
 
   try {

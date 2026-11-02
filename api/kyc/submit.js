@@ -1,7 +1,7 @@
 import { getDatabases } from "../../lib/appwrite.js";
 import { ID, Query } from "node-appwrite";
 import { verifySessionUser } from "../../lib/auth.js";
-import { checkNin } from "../../lib/dojah.js";
+import { checkNin } from "../../lib/ninValidator.js";
 import { isAiConfigured, matchFaces } from "../../lib/openai.js";
 import { AUTO_APPROVE_DELAY_MS } from "../../lib/kycReview.js";
 
@@ -123,24 +123,28 @@ export default async function handler(req, res) {
     const livenessPassed =
       livenessScores?.passed === true || parsedAiLiveness?.passed === true;
 
-    // --- NIN validation against NIMC (Dojah) — the common Nigerian ID ---
-    // A wrong NIN is rejected immediately so the user can fix it before the
-    // review queue ever sees it. A provider outage never blocks a submission:
-    // it falls back to admin review instead of the 60-second auto-approval.
+    // --- NIN validation against the photographed ID document (in-app) -----
+    // The entered NIN must match the number printed on the ID photo: a
+    // wrong number is rejected immediately so the user can fix it before
+    // the review queue ever sees it. An unreadable photo never blocks a
+    // submission: it falls back to admin review instead of the 60-second
+    // auto-approval.
     let ninCheck = { status: "n/a" };
     if (idType === "local_id_nin") {
       try {
-        ninCheck = await checkNin({ nin: details.ninNumber, fullName });
+        ninCheck = await checkNin({ nin: details.ninNumber, fullName, imageUrl });
       } catch (err) {
         ninCheck = { status: "unavailable", message: err.message };
       }
-      if (ninCheck.status === "not_found" || ninCheck.status === "bad_format") {
+      if (ninCheck.status === "mismatch" || ninCheck.status === "bad_format") {
         return res.status(400).json({
           success: false,
-          code: "NIN_NOT_FOUND",
-          message: "That NIN was not found in NIMC records. Check the number and try again.",
+          code: "NIN_MISMATCH",
+          message: ninCheck.message || "The NIN doesn't match your ID photo. Check the number and try again.",
         });
       }
+      // Any other status ('verified', 'unavailable') continues below:
+      // 'unavailable' simply forgoes the auto-approval and goes to review.
     }
 
     // --- Facial verification: the live face vs the ID document face --------
@@ -165,15 +169,16 @@ export default async function handler(req, res) {
     }
 
     // --- 60-second auto-approval window ------------------------------------
-    // NIN verified with NIMC + face match + liveness all passed → the account
-    // approves itself 60 seconds later if no admin has decided in between
-    // (the reviewer keeps the full window to reject first). Anything missing
-    // — non-NIN ID, provider outage, weak liveness — goes to admin review.
+    // NIN confirmed against the ID photo (printed number + printed name) +
+    // face match + liveness all passed → the account approves itself 60
+    // seconds later if no admin has decided in between (the reviewer keeps
+    // the full window to reject first). Anything missing — unreadable photo,
+    // non-NIN ID, name not confirmed, weak liveness — goes to admin review.
     const clientCandidate = livenessPassed && livenessScore >= AI_LIVENESS_THRESHOLD;
     const ninVerified = ninCheck.status === "verified";
     const autoApproveEligible =
       ninVerified &&
-      ninCheck.nameMatch !== false &&
+      ninCheck.nameMatch === true &&
       aiCheck.status === "passed" &&
       clientCandidate;
     const autoApproveAt = autoApproveEligible
