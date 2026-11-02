@@ -33,9 +33,9 @@ submission degrades to admin review (never a hard block).
 
 ```
 GEMINI_API_KEY=...               # primary — FREE, no card: https://aistudio.google.com
-GEMINI_MODEL=gemini-2.5-flash    # optional
+GEMINI_MODEL=gemini-3.6-flash    # optional
 GROQ_API_KEY=...                 # fallback — FREE, no card: https://console.groq.com
-GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct   # optional
+GROQ_MODEL=qwen/qwen3.8-27b      # optional
 OPENAI_API_KEY=sk-...            # optional paid fallback (only if the free tiers fail)
 OPENAI_MODEL=gpt-4o-mini         # optional
 AI_LIVENESS_THRESHOLD=0.75       # optional
