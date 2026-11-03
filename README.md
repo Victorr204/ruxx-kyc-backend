@@ -27,13 +27,18 @@ All `/api/kyc/*` routes except `ai/health` require an Appwrite session `Authoriz
 ### Required env (Vercel project)
 
 Vision AI runs on a **provider chain — free tiers first** (`lib/vision.js`):
-Gemini → Groq → OpenAI. Each configured provider gets one attempt; quota
-exhaustion or an outage falls through to the next, and if all fail the
-submission degrades to admin review (never a hard block).
+Gemini (one attempt per model in `GEMINI_MODELS`, then) → Groq → OpenAI.
+Quota exhaustion or an outage falls through to the next model/provider, a
+short announced 429 wait ("retry in 17.7s") is honored once instead of
+failing, and if everything fails the submission degrades to admin review
+(never a hard block). Verified free-tier limits on a fresh key:
+`gemini-3.6-flash` = 20 req/day (why the lite models are primary),
+lite models = 15 req/min with far higher daily caps, Groq qwen = 7k input
+tokens/min.
 
 ```
 GEMINI_API_KEY=...               # primary — FREE, no card: https://aistudio.google.com
-GEMINI_MODEL=gemini-3.6-flash    # optional
+GEMINI_MODELS=gemini-3.1-flash-lite,gemini-3.5-flash-lite  # optional (verified free-tier defaults)
 GROQ_API_KEY=...                 # fallback — FREE, no card: https://console.groq.com
 GROQ_MODEL=qwen/qwen3.8-27b      # optional
 OPENAI_API_KEY=sk-...            # optional paid fallback (only if the free tiers fail)
