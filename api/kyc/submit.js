@@ -5,7 +5,9 @@ import { checkNin } from "../../lib/ninValidator.js";
 import { isAiConfigured, matchFaces } from "../../lib/vision.js";
 import { AUTO_APPROVE_DELAY_MS } from "../../lib/kycReview.js";
 
-const VALID_ID_TYPES = ["local_id_nin", "national_id_card", "international_passport"];
+// "national_id_card" stays valid only for older app builds that still send it
+// (NIMC card ≈ NIN slip — the app now offers "drivers_license" instead).
+const VALID_ID_TYPES = ["local_id_nin", "drivers_license", "national_id_card", "international_passport"];
 const AI_LIVENESS_THRESHOLD = Number(process.env.AI_LIVENESS_THRESHOLD) || 0.75;
 
 const parseMaybeJson = (value, fallback = {}) => {
@@ -82,7 +84,7 @@ export default async function handler(req, res) {
       if (!details?.ninNumber) {
         return res.status(400).json({ success: false, message: "NIN number is required" });
       }
-    } else if (idType === "national_id_card") {
+    } else if (idType === "drivers_license" || idType === "national_id_card") {
       if (!details?.idNumber || !details?.dob) {
         return res.status(400).json({ success: false, message: "ID number and DOB are required" });
       }
